@@ -1,24 +1,33 @@
-# Etapa 1: build da aplicação Vite/React
-FROM node:20-alpine AS build
+# Etapa 1: build da aplicação SSR Nitro/React
+FROM node:22-alpine AS build
 WORKDIR /app
- 
+
 COPY package*.json ./
 RUN npm ci
- 
+
 COPY . .
- 
-# Variáveis de build do Vite (precisam existir em tempo de BUILD, não de runtime)
+
+# Permite override do preset Nitro via build arg (node-server, vercel, cloudflare-module, etc.)
+ARG NITRO_PRESET=node-server
+ENV NITRO_PRESET=$NITRO_PRESET
+
+# Variáveis VITE precisam existir em tempo de BUILD (são substituídas no bundle)
 ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
-ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
- 
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
+
 RUN npm run build
- 
-# Etapa 2: imagem final, só Nginx servindo os arquivos estáticos
-FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
- 
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+
+# Etapa 2: imagem final com Node.js para executar o servidor Nitro SSR
+FROM node:22-alpine AS runner
+WORKDIR /app
+
+COPY --from=build /app/.output ./.output
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+EXPOSE 3000
+
+CMD ["node", ".output/server/index.mjs"]
